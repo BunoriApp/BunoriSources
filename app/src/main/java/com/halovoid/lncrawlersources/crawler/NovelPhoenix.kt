@@ -109,7 +109,7 @@ class NovelPhoenix : Crawler() {
             chapter.copy(
                 index = index + 1,
                 volumeId = "${cleanNovelUrl}_vol_${(index / chapterPerVolume) + 1}"
-            )
+            ).apply { scanlationSource = name }
         }
     }
 

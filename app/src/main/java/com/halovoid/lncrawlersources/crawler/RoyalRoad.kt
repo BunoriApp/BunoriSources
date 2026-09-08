@@ -94,7 +94,7 @@ class RoyalRoad : Crawler() {
                                 index = i + 1,
                                 volumeId = "${novelUrl}_vol_${(i / chapterPerVolume) + 1}",
                                 fileLocation = null
-                            )
+                            ).apply { scanlationSource = name }
                         )
                     }
                 }
@@ -117,7 +117,7 @@ class RoyalRoad : Crawler() {
                             index = index + 1,
                             volumeId = "${novelUrl}_vol_${(index / chapterPerVolume) + 1}",
                             fileLocation = null
-                        )
+                        ).apply { scanlationSource = name }
                     )
                 }
             }

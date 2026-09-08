@@ -90,7 +90,7 @@ class AsiaNovel : Crawler() {
                                                 index = position,
                                                 volumeId = "${novelUrl}_vol_${(position - 1) / chapterPerVolume + 1}",
                                                 fileLocation = null
-                                            )
+                                            ).apply { scanlationSource = name }
                                         )
                                     }
                                 }
@@ -117,7 +117,7 @@ class AsiaNovel : Crawler() {
                         index = index + 1,
                         volumeId = "${novelUrl}_vol_${index / chapterPerVolume + 1}",
                         fileLocation = null
-                    )
+                    ).apply { scanlationSource = name }
                 )
             }
         }

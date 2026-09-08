@@ -104,7 +104,7 @@ class NovelBins : Crawler() {
             chapter.copy(
                 index = index + 1,
                 volumeId = "${novelUrl}_vol_${(index / chapterPerVolume) + 1}"
-            )
+            ).apply { scanlationSource = name }
         }
     }
 
