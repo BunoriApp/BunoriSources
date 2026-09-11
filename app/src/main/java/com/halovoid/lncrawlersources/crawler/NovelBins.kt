@@ -5,6 +5,10 @@ import com.halovoid.lncrawler.api.core.config.CrawlerConfig
 import com.halovoid.lncrawler.api.core.crawler.Crawler
 import com.halovoid.lncrawler.domain.models.Chapter
 import com.halovoid.lncrawler.domain.models.Novel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import okhttp3.FormBody
 import org.json.JSONArray
 import org.jsoup.Jsoup
@@ -26,9 +30,6 @@ class NovelBins : Crawler() {
             maxAttempts = 3,
             runnerConcurrency = 4
         )
-
-
-    override val chapterPerVolume: Int = 50
 
     override fun canHandle(url: String): Boolean {
         return url.contains("novelbins.com") || url.contains("novelbin.com")
@@ -72,30 +73,29 @@ class NovelBins : Crawler() {
             novelId = bookmarkLink.substringAfter("'").substringBefore("'")
         }
 
-        val chapters = mutableListOf<Chapter>()
         val tabLinks = doc.select("a.ch[data-toggle='tab']")
 
-        if (tabLinks.isEmpty()) {
+        val chapters = if (tabLinks.isEmpty()) {
             // Fallback for simple pages
-            doc.select(".chapters .mt-card-item h3.mt-card-name a").forEachIndexed { index, element ->
-                chapters.add(
-                    Chapter(
-                        id = 0,
-                        url = element.attr("abs:href"),
-                        novelUrl = novelUrl,
-                        title = element.text(),
-                        index = index,
-                        volumeId = "",
-                        fileLocation = null
-                    )
+            doc.select(".chapters .mt-card-item h3.mt-card-name a").mapIndexed { index, element ->
+                Chapter(
+                    id = 0,
+                    url = element.attr("abs:href"),
+                    novelUrl = novelUrl,
+                    title = element.text(),
+                    index = index,
+                    fileLocation = null
                 )
             }
         } else {
-            // Paginated chapter lists via AJAX
-            tabLinks.forEach { tabLink ->
-                val tabIndex = tabLink.attr("href").replace("#", "")
-                val ajaxChapters = fetchChaptersViaAjax(novelId, tabIndex, permalink, novelUrl)
-                chapters.addAll(ajaxChapters)
+            // Paginated chapter lists via AJAX fetched concurrently
+            coroutineScope {
+                tabLinks.map { tabLink ->
+                    async(Dispatchers.IO) {
+                        val tabIndex = tabLink.attr("href").replace("#", "")
+                        fetchChaptersViaAjax(novelId, tabIndex, permalink, novelUrl)
+                    }
+                }.awaitAll().flatten()
             }
         }
 
@@ -103,7 +103,6 @@ class NovelBins : Crawler() {
         return chapters.distinctBy { it.url }.mapIndexed { index, chapter ->
             chapter.copy(
                 index = index + 1,
-                volumeId = "${novelUrl}_vol_${(index / chapterPerVolume) + 1}"
             ).apply { scanlationSource = name }
         }
     }
@@ -203,7 +202,6 @@ class NovelBins : Crawler() {
                         novelUrl = refererUrl,
                         title = title,
                         index = 0,      //Placeholder - recalculated in getChapterList
-                        volumeId = "",  //Placeholder - recalculated in getChapterList
                         fileLocation = null
                     )
                 )

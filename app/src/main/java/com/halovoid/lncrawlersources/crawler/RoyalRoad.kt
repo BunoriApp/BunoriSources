@@ -26,8 +26,6 @@ class RoyalRoad : Crawler() {
             runnerConcurrency = 3
         )
 
-    override val chapterPerVolume: Int = 50
-
     override fun canHandle(url: String): Boolean {
         return url.contains("royalroad.com") || url.contains("royalroadl.com")
     }
@@ -70,7 +68,7 @@ class RoyalRoad : Crawler() {
 
         // The site populates its paginated table using a JSON array in the script tags.
         // We can extract this directly to get all chapters without making AJAX pagination requests.
-        val scriptContent = doc.getElementsByTag("script").map { it.html() }.find { it.contains("window.chapters") }
+        val scriptContent = doc.getElementsByTag("script").firstOrNull { it.html().contains("window.chapters") }?.html()
 
         if (scriptContent != null) {
             try {
@@ -92,7 +90,6 @@ class RoyalRoad : Crawler() {
                                 novelUrl = novelUrl,
                                 title = chapTitle,
                                 index = i + 1,
-                                volumeId = "${novelUrl}_vol_${(i / chapterPerVolume) + 1}",
                                 fileLocation = null
                             ).apply { scanlationSource = name }
                         )
@@ -115,7 +112,6 @@ class RoyalRoad : Crawler() {
                             novelUrl = novelUrl,
                             title = link.text(),
                             index = index + 1,
-                            volumeId = "${novelUrl}_vol_${(index / chapterPerVolume) + 1}",
                             fileLocation = null
                         ).apply { scanlationSource = name }
                     )

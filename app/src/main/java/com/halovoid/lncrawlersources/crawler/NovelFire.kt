@@ -5,6 +5,10 @@ import com.halovoid.lncrawler.api.core.config.CrawlerConfig
 import com.halovoid.lncrawler.api.core.crawler.Crawler
 import com.halovoid.lncrawler.domain.models.Chapter
 import com.halovoid.lncrawler.domain.models.Novel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import org.json.JSONObject
 import org.jsoup.Jsoup
 import java.io.IOException
@@ -25,8 +29,6 @@ class NovelFire : Crawler() {
             maxAttempts = 3,
             runnerConcurrency = 2
         )
-
-    override val chapterPerVolume: Int = 100 // Adjust as needed for local app logic
 
     override fun canHandle(url: String): Boolean {
         return url.contains("novelfire.net")
@@ -65,7 +67,6 @@ class NovelFire : Crawler() {
         val chaptersDoc = getDocument(chapterListUrl) ?: throw IOException("Failed to fetch chapter list from $chapterListUrl")
 
         Log.i(name, "Scraping chapter list: $chapterListUrl")
-        val chapters = mutableListOf<Chapter>()
 
         // Determine maximum pages for pagination (if applicable)
         var maxPage = 1
@@ -79,36 +80,42 @@ class NovelFire : Crawler() {
 
         Log.i(name, "Found $maxPage chapter page(s) for $cleanNovelUrl")
 
-        // Loop through all pages to gather chapters
-        for (i in 1..maxPage) {
-            val pageDoc = if (i == 1) chaptersDoc else getDocument("$chapterListUrl?page=$i")
-
-            pageDoc?.select("ul.chapter-list li a")?.forEach { element ->
+        fun parseChaptersFromDoc(d: org.jsoup.nodes.Document): List<Chapter> {
+            return d.select("ul.chapter-list li a").map { element ->
                 val chapUrl = element.attr("abs:href")
-                // Use the strong tag for title if available, fallback to whole anchor text
                 val chapTitle = element.select("strong.chapter-title").text().ifEmpty {
                     element.text().replace(element.select(".chapter-no").text(), "").trim()
                 }
-
-                chapters.add(
-                    Chapter(
-                        id = 0,
-                        url = chapUrl,
-                        novelUrl = cleanNovelUrl,
-                        title = chapTitle,
-                        index = 0,      // Recalculated below
-                        volumeId = "",  // Recalculated below
-                        fileLocation = null
-                    )
+                Chapter(
+                    id = 0,
+                    url = chapUrl,
+                    novelUrl = cleanNovelUrl,
+                    title = chapTitle,
+                    index = 0,      // Recalculated below
+                    fileLocation = null
                 )
             }
+        }
+
+        val chapters = mutableListOf<Chapter>()
+        chapters.addAll(parseChaptersFromDoc(chaptersDoc))
+
+        if (maxPage > 1) {
+            val remainingPages = coroutineScope {
+                (2..maxPage).map { i ->
+                    async(Dispatchers.IO) {
+                        val pageDoc = getDocument("$chapterListUrl?page=$i")
+                        if (pageDoc != null) parseChaptersFromDoc(pageDoc) else emptyList()
+                    }
+                }.awaitAll().flatten()
+            }
+            chapters.addAll(remainingPages)
         }
 
         // Clean up duplicate entries and set final indices
         return chapters.distinctBy { it.url }.mapIndexed { index, chapter ->
             chapter.copy(
                 index = index + 1,
-                volumeId = "${cleanNovelUrl}_vol_${(index / chapterPerVolume) + 1}"
             ).apply { scanlationSource = name }
         }
     }

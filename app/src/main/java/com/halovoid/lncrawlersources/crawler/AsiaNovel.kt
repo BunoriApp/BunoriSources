@@ -24,8 +24,6 @@ class AsiaNovel : Crawler() {
             runnerConcurrency = 2
         )
 
-    override val chapterPerVolume: Int = 100
-
     private val mobileUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 13_2_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.0.3 Mobile/15E148 Safari/04.1"
 
     override fun canHandle(url: String): Boolean {
@@ -88,7 +86,6 @@ class AsiaNovel : Crawler() {
                                                 novelUrl = novelUrl,
                                                 title = "Chapter $position",
                                                 index = position,
-                                                volumeId = "${novelUrl}_vol_${(position - 1) / chapterPerVolume + 1}",
                                                 fileLocation = null
                                             ).apply { scanlationSource = name }
                                         )
@@ -115,7 +112,6 @@ class AsiaNovel : Crawler() {
                         novelUrl = novelUrl,
                         title = title,
                         index = index + 1,
-                        volumeId = "${novelUrl}_vol_${index / chapterPerVolume + 1}",
                         fileLocation = null
                     ).apply { scanlationSource = name }
                 )
