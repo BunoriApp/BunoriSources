@@ -347,11 +347,13 @@ def main():
         existing_index = fetch_remote_index(args.github_repo)
 
     if existing_index is None:
-        # Fall back to a local file only if one happens to exist (e.g. local/dev runs with a
-        # persistent working directory). On a fresh CI checkout this will simply be empty.
+        # Fall back to a local file only if one happens to exist and NOT running in CI.
+        # On CI, if fetch_remote_index returned 404 (no remote release exists yet),
+        # existing_index must remain empty so that all extensions are packaged for the initial release!
+        is_ci = bool(os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"))
         local_index_file = output_dir / "index.json"
         existing_index = {}
-        if local_index_file.exists():
+        if not is_ci and local_index_file.exists():
             try:
                 with open(local_index_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
@@ -423,8 +425,10 @@ def main():
         if has_release:
             f.write(f"{args.out_dir}/index.json\n")
             f.write(f"{args.out_dir}/index.min.json\n")
-            for e in changed_or_new_entries:
-                f.write(f"{args.out_dir}/{e['id']}.bext\n")
+            for e in all_entries:
+                bext_file = output_dir / f"{e['id']}.bext"
+                if bext_file.exists():
+                    f.write(f"{args.out_dir}/{e['id']}.bext\n")
 
     print(f"\nPackaging summary:")
     print(f"  Total extensions: {len(all_entries)}")
