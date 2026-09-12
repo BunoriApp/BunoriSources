@@ -4,7 +4,9 @@ Bunori Extension Packager
 Converts compiled extension sources into standalone .bext archives and manages repository index.json.
 
 Release Rule:
-- A crawler is packaged and released ONLY when its `version` (SemVer x.x.x) is increased compared to index.json.
+- A crawler is packaged and released ONLY when its `version` (SemVer x.x.x) is increased compared to
+  the index.json published on the LATEST GitHub Release (not a local file — CI runners are ephemeral
+  and never carry state between runs).
 - Unchanged crawlers are completely skipped (zero compilation / d8 overhead).
 """
 
@@ -16,6 +18,8 @@ import re
 import shutil
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 import zipfile
 from pathlib import Path
 
@@ -105,6 +109,38 @@ def parse_semver(v: str) -> tuple:
     for part in re.findall(r"\d+", str(v)):
         parts.append(int(part))
     return tuple(parts) if parts else (0,)
+
+
+def fetch_remote_index(github_repo: str, timeout: int = 15):
+    """
+    Fetch the currently-published index.json from the *latest* GitHub Release.
+    This is the real source of truth for "what versions are already released" —
+    CI runners are ephemeral and a local repo/index.json never survives between runs,
+    so it must never be used as the comparison baseline.
+
+    Returns a dict {id: entry} on success, or None if there's no prior release yet
+    (e.g. very first run) or the fetch fails for any reason.
+    """
+    if not github_repo:
+        return None
+    url = f"https://github.com/{github_repo}/releases/latest/download/index.json"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "bunori-packager"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            entries = data if isinstance(data, list) else data.get("extensions", [])
+            index = {e["id"]: e for e in entries}
+            print(f"Fetched published baseline index.json from latest release ({len(index)} extension(s)).")
+            return index
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            print("No prior release found (first run) — treating all extensions as new.")
+        else:
+            print(f"Warning: could not fetch published index.json (HTTP {e.code}). Treating baseline as empty.")
+        return None
+    except (urllib.error.URLError, json.JSONDecodeError, KeyError, TimeoutError) as e:
+        print(f"Warning: could not fetch published index.json ({e}). Treating baseline as empty.")
+        return None
 
 
 def discover_crawlers(crawler_dir: Path):
@@ -262,6 +298,9 @@ def main():
     default_tag = os.environ.get("RELEASE_TAG")
     parser.add_argument("--release-tag", default=default_tag, help="Release tag (e.g. v42) for permanent asset URLs")
     parser.add_argument("--github-repo", default=default_repo, help="GitHub repo in owner/name format")
+    parser.add_argument("--no-remote-baseline", action="store_true",
+                         help="Skip fetching the baseline from the latest GitHub Release "
+                              "(use only a local repo/index.json if present). Mainly for offline/local dev runs.")
     args = parser.parse_args()
 
     project_root = Path(__file__).resolve().parent.parent
@@ -296,19 +335,36 @@ def main():
             print(f"Error: No extension found with id '{args.single}'")
             sys.exit(1)
 
-    # 1. Load existing index baseline
-    existing_index = {}
-    local_index_file = output_dir / "index.json"
-    if local_index_file.exists():
-        try:
-            with open(local_index_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                entries = data if isinstance(data, list) else data.get("extensions", [])
-                existing_index = {e["id"]: e for e in entries}
-        except Exception:
-            pass
+    # 1. Load the version-comparison baseline.
+    #
+    # IMPORTANT: this must come from the *published* index.json on the latest GitHub Release,
+    # not from a local repo/index.json. CI runners start from a clean checkout every time, so a
+    # local file is never a reliable "what's already been released" record — using it as the
+    # baseline caused every extension to look "new" on every run, rebuilding and re-releasing
+    # everything regardless of whether the version actually changed.
+    existing_index = None
+    if not args.no_remote_baseline:
+        existing_index = fetch_remote_index(args.github_repo)
 
-    # 2. Check each crawler's version: only build if version bumped or new!
+    if existing_index is None:
+        # Fall back to a local file only if one happens to exist (e.g. local/dev runs with a
+        # persistent working directory). On a fresh CI checkout this will simply be empty.
+        local_index_file = output_dir / "index.json"
+        existing_index = {}
+        if local_index_file.exists():
+            try:
+                with open(local_index_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    entries = data if isinstance(data, list) else data.get("extensions", [])
+                    existing_index = {e["id"]: e for e in entries}
+                print(f"Using local repo/index.json as baseline ({len(existing_index)} extension(s)).")
+            except Exception:
+                pass
+
+    # 2. Check each crawler's version: only build if version bumped or new.
+    #    (No local ".bext exists?" fallback here anymore — on an ephemeral CI runner a missing
+    #    local .bext tells you nothing about whether it was already released; the version
+    #    comparison against the published baseline is the only signal that matters.)
     final_entries = {}
     changed_or_new_entries = []
 
@@ -322,13 +378,13 @@ def main():
         if old_entry is None:
             print(f"  + {crawler['name']} (v{declared_version}) - NEW extension")
             should_package = True
-        elif not (output_dir / f"{crawler_id}.bext").exists():
-            # If bext file is missing locally, build it
-            print(f"  + {crawler['name']} (v{declared_version}) - Missing .bext archive")
-            should_package = True
         elif parse_semver(declared_version) > parse_semver(old_entry.get("version", "0.0.0")):
             print(f"  ▲ {crawler['name']}: v{old_entry.get('version')} -> v{declared_version} (BUMPED)")
             should_package = True
+        elif parse_semver(declared_version) < parse_semver(old_entry.get("version", "0.0.0")):
+            print(f"  ⚠ {crawler['name']}: source declares v{declared_version} but published version is "
+                  f"v{old_entry.get('version')} (lower than published — skipping; bump the version to re-release)")
+            final_entries[crawler_id] = old_entry
         else:
             print(f"  • {crawler['name']} (v{declared_version}) - Up-to-date (skipped)")
             final_entries[crawler_id] = old_entry
@@ -342,7 +398,7 @@ def main():
 
     # 3. Write repo catalog index.json and index.min.json
     repo_catalog = {
-        "repoName": "Bunori Extensions",
+        "repoName": "BunoriSources",
         "version": 1,
         "extensions": all_entries
     }
