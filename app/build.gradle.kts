@@ -12,7 +12,7 @@ android {
         applicationId = "com.halovoid.bunorisources"
         minSdk = 24
         targetSdk = 37
-        versionCode = 0
+        versionCode = 1
         versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -37,7 +37,9 @@ dependencies {
     implementation(libs.jsoup)
     implementation(libs.okhttp)
     compileOnly(libs.extension.api)
+    compileOnly(libs.lncrawler)
     testImplementation(libs.extension.api)
+    testImplementation(libs.lncrawler)
 }
 
 tasks.register<Exec>("packageExtensions") {
