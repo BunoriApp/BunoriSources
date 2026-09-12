@@ -36,9 +36,7 @@ dependencies {
     testImplementation(libs.junit)
     implementation(libs.jsoup)
     implementation(libs.okhttp)
-    compileOnly(libs.extension.api)
     compileOnly(libs.lncrawler)
-    testImplementation(libs.extension.api)
     testImplementation(libs.lncrawler)
 }
 

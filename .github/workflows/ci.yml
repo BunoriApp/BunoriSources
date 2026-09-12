@@ -36,19 +36,6 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Ensure extension-api availability
-        run: |
-          # If extension-api is not yet published to Maven Central/JitPack,
-          # clone LNCrawler and publish :extension-api to mavenLocal on the runner
-          if ! ./gradlew :app:dependencies --configuration compileOnly 2>&1 | grep -q "com.halovoid.bunori:extension-api"; then
-            echo "Publishing extension-api to mavenLocal from LNCrawler repository..."
-            git clone --depth 1 https://github.com/Binit06/LNCrawler.git /tmp/LNCrawler
-            cd /tmp/LNCrawler
-            chmod +x gradlew
-            ./gradlew :extension-api:publishToMavenLocal
-            cd -
-          fi
-
       - name: Build & Package Extensions
         env:
           RELEASE_TAG: v${{ github.run_number }}
