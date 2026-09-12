@@ -55,15 +55,6 @@ jobs:
           echo "release=$HAS_RELEASE" >> "$GITHUB_OUTPUT"
           echo "Release required: $HAS_RELEASE"
 
-      - name: Determine changed files
-        if: steps.gate.outputs.release == 'true'
-        id: changed
-        run: |
-          FILE_LIST=$(cat repo/changed_files.txt | tr '\n' ' ')
-          echo "list=$FILE_LIST" >> "$GITHUB_OUTPUT"
-          echo "Changed files to deploy:"
-          cat repo/changed_files.txt
-
       - name: Deploy Versioned Extension Release
         if: >
           github.ref == 'refs/heads/main' &&
@@ -79,6 +70,9 @@ jobs:
           make_latest: true
           draft: false
           prerelease: false
-          files: ${{ steps.changed.outputs.list }}
+          files: |
+            repo/index.json
+            repo/index.min.json
+            repo/*.bext
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
