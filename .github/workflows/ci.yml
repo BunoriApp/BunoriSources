@@ -1,4 +1,4 @@
-name: Continuous Integration
+name: CI & Extension Repository Deployment
 
 on:
   push:
@@ -6,8 +6,15 @@ on:
   pull_request:
     branches: [ "main" ]
 
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
@@ -19,20 +26,66 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
+          cache: gradle
+
+      - name: Set up Python 3
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Build with Gradle
-        run: ./gradlew assembleDebug
-
-      - name: Package Compiled Classes into Jar
+      - name: Ensure extension-api availability
         run: |
-          cd app/build/intermediates/built_in_kotlinc/debug/compileDebugKotlin/classes/
-          jar cvf crawlers.jar com/halovoid/lncrawlersources/
-          mv crawlers.jar $GITHUB_WORKSPACE/
+          # If extension-api is not yet published to Maven Central/JitPack,
+          # clone LNCrawler and publish :extension-api to mavenLocal on the runner
+          if ! ./gradlew :app:dependencies --configuration compileOnly 2>&1 | grep -q "com.halovoid.bunori:extension-api"; then
+            echo "Publishing extension-api to mavenLocal from LNCrawler repository..."
+            git clone --depth 1 https://github.com/Binit06/LNCrawler.git /tmp/LNCrawler
+            cd /tmp/LNCrawler
+            chmod +x gradlew
+            ./gradlew :extension-api:publishToMavenLocal
+            cd -
+          fi
 
-      - name: Convert JAR to DEX using D8
+      - name: Build & Package Extensions
+        env:
+          RELEASE_TAG: v${{ github.run_number }}
+        run: ./gradlew packageExtensions
+
+      - name: Check for releasable changes
+        id: gate
         run: |
-          D8_PATH=$(find $ANDROID_HOME/build-tools -name "d8" | sort -r | head -n 1)
-          $D8_PATH $GITHUB_WORKSPACE/crawlers.jar --output $GITHUB_WORKSPACE/
+          HAS_RELEASE=$(cat repo/has_release.txt 2>/dev/null || echo "false")
+          echo "release=$HAS_RELEASE" >> "$GITHUB_OUTPUT"
+          echo "Release required: $HAS_RELEASE"
+
+      - name: Determine changed files
+        if: steps.gate.outputs.release == 'true'
+        id: changed
+        run: |
+          FILE_LIST=$(cat repo/changed_files.txt | tr '\n' ' ')
+          echo "list=$FILE_LIST" >> "$GITHUB_OUTPUT"
+          echo "Changed files to deploy:"
+          cat repo/changed_files.txt
+
+      - name: Deploy Versioned Extension Release
+        if: >
+          github.ref == 'refs/heads/main' &&
+          github.event_name == 'push' &&
+          steps.gate.outputs.release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.run_number }}
+          name: "Bunori Extensions v${{ github.run_number }}"
+          body: |
+            Automated extension release v${{ github.run_number }}.
+            Rollback: To rollback to any previous release, set that release as 'latest' in GitHub Releases.
+          make_latest: true
+          draft: false
+          prerelease: false
+          files: ${{ steps.changed.outputs.list }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

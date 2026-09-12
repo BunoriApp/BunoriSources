@@ -19,10 +19,12 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        mavenLocal()
         maven { url = uri("https://jitpack.io") }
     }
+
 }
 
-rootProject.name = "LNCrawlerSources"
+rootProject.name = "BunoriSources"
 include(":app")
  

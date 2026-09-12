@@ -3,17 +3,17 @@ plugins {
 }
 
 android {
-    namespace = "com.halovoid.lncrawlersources"
+    namespace = "com.halovoid.bunorisources"
     compileSdk {
         version = release(37)
     }
 
     defaultConfig {
-        applicationId = "com.halovoid.lncrawlersources"
+        applicationId = "com.halovoid.bunorisources"
         minSdk = 24
         targetSdk = 37
-        versionCode = 22
-        versionName = "1.0.21"
+        versionCode = 0
+        versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -36,5 +36,16 @@ dependencies {
     testImplementation(libs.junit)
     implementation(libs.jsoup)
     implementation(libs.okhttp)
-    compileOnly(libs.lncrawler)
+    compileOnly(libs.extension.api)
+    testImplementation(libs.extension.api)
+}
+
+tasks.register<Exec>("packageExtensions") {
+    group = "bunori"
+    description = "Compiles Kotlin sources and packages all extensions into .bext archives with repo/index.json"
+    dependsOn("compileReleaseKotlin")
+    workingDir = rootProject.rootDir
+    environment("PATH", System.getenv("PATH") ?: "")
+    environment("JAVA_HOME", System.getProperty("java.home"))
+    commandLine("python3", "tools/package_extensions.py")
 }
