@@ -1,0 +1,10 @@
+repo/index.json
+repo/index.min.json
+repo/asianovel.bext
+repo/novgo.bext
+repo/novelarchive.bext
+repo/novelbins.bext
+repo/novelfire.bext
+repo/novelfull.bext
+repo/novelphoenix.bext
+repo/royalroad.bext
