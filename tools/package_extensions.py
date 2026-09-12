@@ -113,28 +113,27 @@ def parse_semver(v: str) -> tuple:
 
 def fetch_remote_index(github_repo: str, timeout: int = 15):
     """
-    Fetch the currently-published index.json from the *latest* GitHub Release.
-    This is the real source of truth for "what versions are already released" —
-    CI runners are ephemeral and a local repo/index.json never survives between runs,
-    so it must never be used as the comparison baseline.
+    Fetch the currently-published index.json from the GitHub Pages 'repo' branch.
+    This is the real source of truth for 'what versions are already released' —
+    CI runners are ephemeral and a local repo/index.json never survives between runs.
 
-    Returns a dict {id: entry} on success, or None if there's no prior release yet
+    Returns a dict {id: entry} on success, or None if there's no prior branch yet
     (e.g. very first run) or the fetch fails for any reason.
     """
     if not github_repo:
         return None
-    url = f"https://github.com/{github_repo}/releases/latest/download/index.json"
+    url = f"https://raw.githubusercontent.com/{github_repo}/repo/index.json"
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "bunori-packager"})
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             entries = data if isinstance(data, list) else data.get("extensions", [])
             index = {e["id"]: e for e in entries}
-            print(f"Fetched published baseline index.json from latest release ({len(index)} extension(s)).")
+            print(f"Fetched published baseline index.json from repo branch ({len(index)} extension(s)).")
             return index
     except urllib.error.HTTPError as e:
         if e.code == 404:
-            print("No prior release found (first run) — treating all extensions as new.")
+            print("No prior published repo branch found (first run) — treating all extensions as new.")
         else:
             print(f"Warning: could not fetch published index.json (HTTP {e.code}). Treating baseline as empty.")
         return None
@@ -264,8 +263,9 @@ def build_bext(crawler, classes_dir: Path, output_dir: Path, d8_cmd: Path, andro
     shutil.rmtree(temp_dex_dir)
 
     bext_download_url = bext_filename
-    if release_tag and github_repo:
-        bext_download_url = f"https://github.com/{github_repo}/releases/download/{release_tag}/{bext_filename}"
+    if github_repo:
+        owner, repo_name = github_repo.split("/")
+        bext_download_url = f"https://{owner.lower()}.github.io/{repo_name}/{bext_filename}"
 
     print(f"  ✓ Packaged {crawler['name']} (v{crawler['version']}) -> {bext_filename} ({file_size / 1024:.1f} KB)")
 

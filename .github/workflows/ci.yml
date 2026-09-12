@@ -55,24 +55,15 @@ jobs:
           echo "release=$HAS_RELEASE" >> "$GITHUB_OUTPUT"
           echo "Release required: $HAS_RELEASE"
 
-      - name: Deploy Versioned Extension Release
+      - name: Deploy to GitHub Pages (repo branch)
         if: >
           github.ref == 'refs/heads/main' &&
           github.event_name == 'push' &&
           steps.gate.outputs.release == 'true'
-        uses: softprops/action-gh-release@v2
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          tag_name: v${{ github.run_number }}
-          name: "Bunori Extensions v${{ github.run_number }}"
-          body: |
-            Automated extension release v${{ github.run_number }}.
-            Rollback: To rollback to any previous release, set that release as 'latest' in GitHub Releases.
-          make_latest: true
-          draft: false
-          prerelease: false
-          files: |
-            repo/index.json
-            repo/index.min.json
-            repo/*.bext
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./repo
+          publish_branch: repo
+          keep_files: true
+          commit_message: "deploy: Bunori extensions repository update [skip ci]"
