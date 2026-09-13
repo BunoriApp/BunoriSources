@@ -20,7 +20,7 @@ class AsiaNovel(
     override val metadata = ExtensionMetadata(
         id = "asianovel",
         name = "AsiaNovel",
-        version = "1.0.0",
+        version = "1.0.1",
         apiVersion = 1,
         lang = "en",
         baseUrl = "https://www.asianovel.net",
@@ -103,12 +103,16 @@ class AsiaNovel(
                                 for (j in 0 until list.length()) {
                                     val chapterObj = list.getJSONObject(j)
                                     val url = chapterObj.optString("url")
-                                    val position = chapterObj.optInt("position")
+                                    val position = chapterObj.optInt("position", j + 1)
+                                    val rawTitle = chapterObj.optString("name").ifBlank {
+                                        chapterObj.optString("title", "Chapter $position")
+                                    }
+                                    val title = rawTitle.ifBlank { "Chapter $position" }
                                     if (url.isNotEmpty()) {
                                         chapters.add(
                                             ChapterDto(
                                                 url = url,
-                                                title = "Chapter $position",
+                                                title = title,
                                                 index = position
                                             )
                                         )

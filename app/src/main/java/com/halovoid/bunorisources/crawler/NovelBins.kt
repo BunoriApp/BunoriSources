@@ -8,10 +8,6 @@ import com.halovoid.bunori.extension.api.models.ExtensionMetadata
 import com.halovoid.bunori.extension.api.models.ListingDto
 import com.halovoid.bunori.extension.api.models.NovelDto
 import com.halovoid.bunori.extension.api.models.SearchResultDto
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import okhttp3.FormBody
 import org.json.JSONArray
 import org.jsoup.Jsoup
@@ -27,7 +23,7 @@ class NovelBins(
     override val metadata = ExtensionMetadata(
         id = "novelbins",
         name = "Novel Bins",
-        version = "1.0.0",
+        version = "1.0.1",
         apiVersion = 1,
         lang = "en",
         baseUrl = "https://novelbins.com",
@@ -101,14 +97,12 @@ class NovelBins(
                 )
             }
         } else {
-            coroutineScope {
-                tabLinks.map { tabLink ->
-                    async(Dispatchers.IO) {
-                        val tabIndex = tabLink.attr("href").replace("#", "")
-                        fetchChaptersViaAjax(novelId, tabIndex, permalink, novelUrl)
-                    }
-                }.awaitAll().flatten()
+            val list = mutableListOf<ChapterDto>()
+            for (tabLink in tabLinks) {
+                val tabIndex = tabLink.attr("href").replace("#", "")
+                list.addAll(fetchChaptersViaAjax(novelId, tabIndex, permalink, novelUrl))
             }
+            list
         }
 
         return chapters.distinctBy { it.url }.mapIndexed { index, chapter ->
@@ -137,13 +131,15 @@ class NovelBins(
             "Content-Type" to "application/x-www-form-urlencoded; charset=UTF-8"
         )
 
-        val response = try {
-            http.post(url, headers, requestBody)
+        val html = try {
+            http.post(url, headers, requestBody).use { response ->
+                if (response.isSuccessful) response.body?.string() else null
+            }
         } catch (e: Exception) {
-            return emptyList()
-        }
+            Log.e(metadata.name, "Error during AJAX POST", e)
+            null
+        } ?: return emptyList()
 
-        val html = response.body?.string() ?: return emptyList()
         val chapters = mutableListOf<ChapterDto>()
         try {
             val jsonArray = JSONArray(html)
@@ -151,10 +147,12 @@ class NovelBins(
                 val obj = jsonArray.getJSONObject(i)
                 val chapterNum = obj.getString("chapter")
                 val title = obj.getString("title")
+                val num = chapterNum.toIntOrNull() ?: (i + 1)
                 chapters.add(
                     ChapterDto(
                         url = "${metadata.baseUrl}/novel/$permalink/chapter/$chapterNum/",
-                        title = title
+                        title = title,
+                        index = num
                     )
                 )
             }

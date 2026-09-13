@@ -6,10 +6,6 @@ import com.halovoid.bunori.extension.api.models.ChapterDto
 import com.halovoid.bunori.extension.api.models.ExtensionMetadata
 import com.halovoid.bunori.extension.api.models.NovelDto
 import com.halovoid.bunori.extension.api.models.SearchResultDto
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import org.jsoup.Jsoup
 import java.io.IOException
 
@@ -23,7 +19,7 @@ class Novgo(
     override val metadata = ExtensionMetadata(
         id = "novgo",
         name = "Nov Go",
-        version = "1.0.0",
+        version = "1.0.1",
         apiVersion = 1,
         lang = "en",
         baseUrl = "https://novgo.net",
@@ -77,6 +73,47 @@ class Novgo(
     }
 
     private suspend fun getChapterList(novelUrl: String, doc: org.jsoup.nodes.Document): List<ChapterDto> {
+        val novelId = doc.select("#rating[data-novel-id], [data-novel-id], #novel_id").attr("data-novel-id").ifEmpty {
+            doc.select("input#novel-id, input#novel_id").attr("value")
+        }
+
+        if (novelId.isNotEmpty()) {
+            val ajaxChapters = fetchChaptersViaAjax(novelId)
+            if (ajaxChapters.isNotEmpty()) {
+                return ajaxChapters
+            }
+        }
+
+        return fetchChaptersViaHtml(novelUrl, doc)
+    }
+
+    private suspend fun fetchChaptersViaAjax(novelId: String): List<ChapterDto> {
+        val ajaxUrl = "${metadata.baseUrl}/ajax-chapter-option?novelId=$novelId"
+        val response = http.fetch(ajaxUrl) ?: return emptyList()
+
+        val doc = Jsoup.parse(response, metadata.baseUrl)
+        val elements = doc.select("option[value], a[href]")
+        if (elements.isEmpty()) return emptyList()
+
+        val chapters = mutableListOf<ChapterDto>()
+        for (i in 0 until elements.size) {
+            val el = elements[i]
+            val path = el.attr("value").ifEmpty { el.attr("href") }
+            if (path.isBlank()) continue
+            val fullUrl = if (path.startsWith("http")) path else "${metadata.baseUrl}/${path.removePrefix("/")}"
+            val title = el.text().trim().ifEmpty { el.attr("title").trim() }
+            chapters.add(
+                ChapterDto(
+                    url = fullUrl,
+                    title = title.ifEmpty { "Chapter ${i + 1}" },
+                    index = i + 1
+                )
+            )
+        }
+        return chapters
+    }
+
+    private suspend fun fetchChaptersViaHtml(novelUrl: String, doc: org.jsoup.nodes.Document): List<ChapterDto> {
         val totalPages = doc.select("input#total-page").attr("value").toIntOrNull() ?: 1
 
         fun parseChaptersFromDoc(d: org.jsoup.nodes.Document): List<ChapterDto> {
@@ -92,16 +129,11 @@ class Novgo(
         chapters.addAll(parseChaptersFromDoc(doc))
 
         if (totalPages > 1) {
-            val remainingPages = coroutineScope {
-                (2..totalPages).map { page ->
-                    async(Dispatchers.IO) {
-                        val pageUrl = if (novelUrl.contains("?")) "$novelUrl&page=$page" else "$novelUrl?page=$page"
-                        val pageDoc = http.document(pageUrl)
-                        if (pageDoc != null) parseChaptersFromDoc(pageDoc) else emptyList()
-                    }
-                }.awaitAll().flatten()
+            for (page in 2..totalPages) {
+                val pageUrl = if (novelUrl.contains("?")) "$novelUrl&page=$page" else "$novelUrl?page=$page"
+                val pageDoc = http.document(pageUrl)
+                if (pageDoc != null) chapters.addAll(parseChaptersFromDoc(pageDoc))
             }
-            chapters.addAll(remainingPages)
         }
 
         return chapters.distinctBy { it.url }.mapIndexed { index, chapter ->

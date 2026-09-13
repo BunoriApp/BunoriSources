@@ -108,8 +108,8 @@ class RoyalRoad(
                         )
                     }
                 }
-            } catch (e: Exception) {
-                Log.e(metadata.name, "Error parsing window.chapters JSON", e)
+            } catch (_: Exception) {
+                // Fallback to table parsing below if JSON parsing fails
             }
         }
 

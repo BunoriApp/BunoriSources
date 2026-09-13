@@ -6,10 +6,6 @@ import com.halovoid.bunori.extension.api.models.ChapterDto
 import com.halovoid.bunori.extension.api.models.ExtensionMetadata
 import com.halovoid.bunori.extension.api.models.NovelDto
 import com.halovoid.bunori.extension.api.models.SearchResultDto
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import org.json.JSONObject
 import org.jsoup.Jsoup
 import java.io.IOException
@@ -24,7 +20,7 @@ class NovelPhoenix(
     override val metadata = ExtensionMetadata(
         id = "novelphoenix",
         name = "Novel Phoenix",
-        version = "1.0.0",
+        version = "1.0.1",
         apiVersion = 1,
         lang = "en",
         baseUrl = "https://novelphoenix.com",
@@ -78,7 +74,7 @@ class NovelPhoenix(
             select(".expand").remove()
         }.text().trim()
 
-        val chapters = getChapterList(cleanNovelUrl)
+        val chapters = getChapterList(cleanNovelUrl, doc)
 
         return NovelDto(
             url = cleanNovelUrl,
@@ -90,9 +86,84 @@ class NovelPhoenix(
         )
     }
 
-    private suspend fun getChapterList(cleanNovelUrl: String): List<ChapterDto> {
+    private suspend fun getChapterList(cleanNovelUrl: String, doc: org.jsoup.nodes.Document): List<ChapterDto> {
+        val postId = doc.select("#novel-report").attr("report-post_id").ifEmpty {
+            doc.select("[report-post_id]").attr("report-post_id")
+        }
+
+        if (postId.isNotEmpty()) {
+            val ajaxChapters = fetchChaptersViaAjax(cleanNovelUrl, postId)
+            if (ajaxChapters.isNotEmpty()) {
+                return ajaxChapters
+            }
+        }
+
+        return fetchChaptersViaHtml(cleanNovelUrl)
+    }
+
+    private suspend fun fetchChaptersViaAjax(cleanNovelUrl: String, postId: String): List<ChapterDto> {
+        val ajaxUrl = "${metadata.baseUrl}/ajax/listChapterDataAjax" +
+            "?draw=1" +
+            "&start=0" +
+            "&length=-1" +
+            "&post_id=$postId" +
+            "&order[0][column]=0" +
+            "&order[0][dir]=asc" +
+            "&order[0][name]=cmm_posts_detail.n_sort" +
+            "&columns[0][data]=n_sort" +
+            "&columns[0][name]=cmm_posts_detail.n_sort" +
+            "&columns[0][searchable]=true" +
+            "&columns[0][orderable]=true" +
+            "&columns[0][search][value]=" +
+            "&columns[0][search][regex]=false" +
+            "&columns[1][data]=bookmark_created_at" +
+            "&columns[1][name]=bookmark_chapters.created_at" +
+            "&columns[1][searchable]=false" +
+            "&columns[1][orderable]=true" +
+            "&columns[1][search][value]=" +
+            "&columns[1][search][regex]=false" +
+            "&search[value]=" +
+            "&search[regex]=false" +
+            "&only_bookmark=false" +
+            "&_=${System.currentTimeMillis()}"
+
+        val response = http.fetch(ajaxUrl) ?: return emptyList()
+
+        return try {
+            val json = JSONObject(response)
+            val dataArray = json.optJSONArray("data") ?: return emptyList()
+            val list = mutableListOf<ChapterDto>()
+
+            for (i in 0 until dataArray.length()) {
+                val item = dataArray.optJSONObject(i) ?: continue
+                val rawTitle = item.optString("title").ifEmpty { item.optString("slug") }
+                val title = Jsoup.parse(rawTitle).text().replace("\u200B", "").trim()
+                val nSort = item.optInt("n_sort", -1)
+
+                val chapUrl = if (nSort > 0) {
+                    "$cleanNovelUrl/chapter-$nSort"
+                } else {
+                    val slug = item.optString("slug")
+                    if (slug.isNotEmpty()) "$cleanNovelUrl/$slug" else continue
+                }
+
+                list.add(
+                    ChapterDto(
+                        url = chapUrl,
+                        title = title.ifEmpty { "Chapter ${if (nSort > 0) nSort else i + 1}" },
+                        index = if (nSort > 0) nSort else i + 1
+                    )
+                )
+            }
+            list.sortedBy { it.index }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    private suspend fun fetchChaptersViaHtml(cleanNovelUrl: String): List<ChapterDto> {
         val chapterListUrl = "$cleanNovelUrl/chapters"
-        val chaptersDoc = http.document(chapterListUrl) ?: throw IOException("Failed to fetch chapter list from $chapterListUrl")
+        val chaptersDoc = http.document(chapterListUrl) ?: return emptyList()
 
         var maxPage = 1
         chaptersDoc.select("ul.pagination li.page-item a.page-link").forEach { element ->
@@ -120,15 +191,10 @@ class NovelPhoenix(
         chapters.addAll(parseChapters(chaptersDoc))
 
         if (maxPage > 1) {
-            val remainingPages = coroutineScope {
-                (2..maxPage).map { i ->
-                    async(Dispatchers.IO) {
-                        val pageDoc = http.document("$chapterListUrl?page=$i")
-                        if (pageDoc != null) parseChapters(pageDoc) else emptyList()
-                    }
-                }.awaitAll().flatten()
+            for (i in 2..maxPage) {
+                val pageDoc = http.document("$chapterListUrl?page=$i")
+                if (pageDoc != null) chapters.addAll(parseChapters(pageDoc))
             }
-            chapters.addAll(remainingPages)
         }
 
         return chapters.distinctBy { it.url }.mapIndexed { index, chapter ->

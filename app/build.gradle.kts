@@ -29,15 +29,28 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+        unitTests.all { testTask ->
+            testTask.outputs.upToDateWhen { false }
+            testTask.testLogging {
+                showStandardStreams = true
+            }
+            testTask.systemProperty("urls", System.getProperty("urls") ?: "")
+            testTask.systemProperty("java.net.preferIPv4Stack", "true")
+        }
+    }
 }
 
 dependencies {
     implementation(libs.androidx.core.ktx)
     testImplementation(libs.junit)
+    testImplementation("org.json:json:20240303")
     implementation(libs.jsoup)
     implementation(libs.okhttp)
-    compileOnly(libs.lncrawler)
-    testImplementation(libs.lncrawler)
+    compileOnly(libs.bunori)
+    testImplementation(libs.bunori)
 }
 
 tasks.register<Exec>("packageExtensions") {

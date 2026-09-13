@@ -7,10 +7,6 @@ import com.halovoid.bunori.extension.api.models.ChapterDto
 import com.halovoid.bunori.extension.api.models.ExtensionMetadata
 import com.halovoid.bunori.extension.api.models.NovelDto
 import com.halovoid.bunori.extension.api.models.SearchResultDto
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import org.json.JSONObject
 import java.io.IOException
 
@@ -24,7 +20,7 @@ class NovelArchive(
     override val metadata = ExtensionMetadata(
         id = "novelarchive",
         name = "Novel Archive",
-        version = "1.0.0",
+        version = "1.0.1",
         apiVersion = 1,
         lang = "en",
         baseUrl = "https://novelarchive.cc",
@@ -132,37 +128,40 @@ class NovelArchive(
         val sourcesToFetch = mutableListOf<Pair<String, String>>()
         val fetchedSourceIds = mutableSetOf<String>()
 
-        val sourcesApiUrl = "${metadata.baseUrl}/api/novels/$novelId/sources"
-        val sourcesJsonString = http.fetch(sourcesApiUrl)
-        if (sourcesJsonString != null) {
-            try {
-                val sourcesJson = JSONObject(sourcesJsonString)
-                val sourcesArray = sourcesJson.optJSONArray("sources")
-                if (sourcesArray != null) {
-                    for (i in 0 until sourcesArray.length()) {
-                        val srcObj = sourcesArray.getJSONObject(i)
-                        val srcId = srcObj.optString("id").trim()
-                        val srcLabel = srcObj.optString("label").trim().ifEmpty { srcId }
-                        if (srcId.isNotEmpty() && !fetchedSourceIds.contains(srcId)) {
-                            fetchedSourceIds.add(srcId)
-                            sourcesToFetch.add(srcId to srcLabel)
-                        }
-                    }
+        fun addSources(array: org.json.JSONArray?) {
+            if (array == null) return
+            for (i in 0 until array.length()) {
+                val srcObj = array.optJSONObject(i) ?: continue
+                val srcId = srcObj.optString("id").trim()
+                val srcLabel = srcObj.optString("label").trim().ifEmpty {
+                    srcObj.optString("name").trim().ifEmpty { srcId }
                 }
-            } catch (e: Exception) {
-                Log.w(metadata.name, "Failed to parse sources for novel $novelId", e)
+                if (srcId.isNotEmpty() && !fetchedSourceIds.contains(srcId)) {
+                    fetchedSourceIds.add(srcId)
+                    sourcesToFetch.add(srcId to srcLabel)
+                }
             }
         }
 
-        if (sourcesToFetch.isNotEmpty()) {
-            val externalChapters = coroutineScope {
-                sourcesToFetch.map { (srcId, srcLabel) ->
-                    async(Dispatchers.IO) {
-                        fetchExternalSourceChapters(novelId, srcId, srcLabel)
-                    }
-                }.awaitAll().flatten()
+        // Check if novelJson already has sources
+        addSources(novelJson.optJSONArray("sources"))
+
+        // If not found in novelJson, try fetching /sources endpoint
+        if (sourcesToFetch.isEmpty()) {
+            val sourcesApiUrl = "${metadata.baseUrl}/api/novels/$novelId/sources"
+            val sourcesJsonString = http.fetch(sourcesApiUrl)
+            if (sourcesJsonString != null) {
+                try {
+                    val sourcesJson = JSONObject(sourcesJsonString)
+                    addSources(sourcesJson.optJSONArray("sources"))
+                } catch (e: Exception) {
+                    Log.w(metadata.name, "Failed to parse sources for novel $novelId", e)
+                }
             }
-            chapters.addAll(externalChapters)
+        }
+
+        for ((srcId, srcLabel) in sourcesToFetch) {
+            chapters.addAll(fetchExternalSourceChapters(novelId, srcId, srcLabel))
         }
 
         return chapters
@@ -181,17 +180,32 @@ class NovelArchive(
             val chaptersJson = JSONObject(chaptersJsonString)
             val chaptersArray = chaptersJson.optJSONArray("chapters") ?: return emptyList()
             for (i in 0 until chaptersArray.length()) {
-                val chapterObj = chaptersArray.getJSONObject(i)
-                val number = chapterObj.getInt("number")
-                val title = chapterObj.optString("title", "Chapter $number")
-                result.add(
-                    ChapterDto(
-                        url = "${metadata.baseUrl}/api/novels/$novelId/sources/$sourceId/chapters/$number",
-                        title = title,
-                        index = number,
-                        scanlation = sourceLabel
+                try {
+                    val chapterObj = chaptersArray.optJSONObject(i) ?: continue
+                    val number = chapterObj.optInt("number", -1).takeIf { it > 0 }
+                        ?: chapterObj.optInt("chapter_number", -1).takeIf { it > 0 }
+                        ?: (i + 1)
+                    val rawTitle = chapterObj.optString("title").ifBlank {
+                        chapterObj.optString("name", "Chapter $number")
+                    }
+                    val title = rawTitle.ifBlank { "Chapter $number" }
+                    val chapUrl = if (chapterObj.has("url") && chapterObj.optString("url").isNotBlank()) {
+                        val u = chapterObj.getString("url")
+                        if (u.startsWith("http")) u else "${metadata.baseUrl}$u"
+                    } else {
+                        "${metadata.baseUrl}/api/novels/$novelId/sources/$sourceId/chapters/$number"
+                    }
+                    result.add(
+                        ChapterDto(
+                            url = chapUrl,
+                            title = title,
+                            index = number,
+                            scanlation = sourceLabel
+                        )
                     )
-                )
+                } catch (e: Exception) {
+                    Log.w(metadata.name, "Error parsing chapter at index $i for source $sourceId", e)
+                }
             }
         } catch (e: Exception) {
             Log.w(metadata.name, "Failed to parse chapter list for source $sourceId", e)

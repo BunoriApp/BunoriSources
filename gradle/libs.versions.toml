@@ -9,7 +9,7 @@ activityCompose = "1.13.0"
 kotlin = "2.2.10"
 composeBom = "2026.02.01"
 jsoup = "1.18.1"
-lncrawler = "-SNAPSHOT"
+bunori = "-SNAPSHOT"
 bunori-extension-api = "1.0.0"
 okhttp = "4.12.0"
 
@@ -22,7 +22,7 @@ androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecyc
 androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
 androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
 jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
-lncrawler = { module = "com.github.LNCrawler:LNCrawler", version.ref = "lncrawler" }
+bunori = { module = "com.github.BunoriApp:LNCrawler", version.ref = "bunori" }
 extension-api = { module = "com.halovoid.bunori:extension-api", version.ref = "bunori-extension-api" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 

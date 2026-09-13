@@ -173,6 +173,8 @@ def discover_crawlers(crawler_dir: Path):
 
         max_attempts_match = re.search(r"maxAttempts\s*=\s*(\d+)", content)
         max_attempts = int(max_attempts_match.group(1)) if max_attempts_match else 3
+        icon_url_match = re.search(r"iconUrl\s*=\s*\"([^\"]+)\"", content)
+        icon_url = icon_url_match.group(1) if icon_url_match else None
 
         if cls_match and id_match and name_match:
             pkg = pkg_match.group(1) if pkg_match else "com.halovoid.bunorisources.crawler"
@@ -184,6 +186,7 @@ def discover_crawlers(crawler_dir: Path):
                 "apiVersion": int(api_version_match.group(1)) if api_version_match else 1,
                 "lang": lang_match.group(1) if lang_match else "en",
                 "baseUrl": url_match.group(1) if url_match else "",
+                "iconUrl": icon_url,
                 "entryClass": f"{pkg}.{cls_name}",
                 "classPrefix": cls_name,
                 "sourceFile": kt_file,
@@ -241,6 +244,7 @@ def build_bext(crawler, classes_dir: Path, output_dir: Path, d8_cmd: Path, andro
         "baseUrl": crawler["baseUrl"],
         "entryClass": crawler["entryClass"],
         "iconPath": icon_path,
+        "iconUrl": crawler.get("iconUrl"),
         "webviewNeeded": crawler.get("webviewNeeded", False),
         "runnerConcurrency": crawler.get("runnerConcurrency", 3),
         "runnerCooldown": crawler.get("runnerCooldown", 1000),
@@ -278,6 +282,7 @@ def build_bext(crawler, classes_dir: Path, output_dir: Path, d8_cmd: Path, andro
         "baseUrl": crawler["baseUrl"],
         "entryClass": crawler["entryClass"],
         "iconPath": icon_path,
+        "iconUrl": crawler.get("iconUrl"),
         "bextUrl": bext_download_url,
         "size": file_size,
         "sha256": sha256_hash,
@@ -294,7 +299,7 @@ def main():
     parser.add_argument("--out-dir", default="repo", help="Output directory for .bext packages and index.json (default: repo)")
     parser.add_argument("--single", help="ID of single extension to package")
     parser.add_argument("--compile", action="store_true", help="Run ./gradlew compileReleaseKotlin before packaging")
-    default_repo = os.environ.get("GITHUB_REPOSITORY", "LNCrawler/LNCrawlerSources")
+    default_repo = os.environ.get("GITHUB_REPOSITORY", "BunoriApp/BunoriSources")
     default_tag = os.environ.get("RELEASE_TAG")
     parser.add_argument("--release-tag", default=default_tag, help="Release tag (e.g. v42) for permanent asset URLs")
     parser.add_argument("--github-repo", default=default_repo, help="GitHub repo in owner/name format")
