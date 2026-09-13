@@ -7,4 +7,3 @@ repo/novelbins.bext
 repo/novelfire.bext
 repo/novelfull.bext
 repo/novelphoenix.bext
-repo/royalroad.bext
